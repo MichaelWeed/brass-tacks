@@ -1,8 +1,38 @@
+# Python environments
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.mypy_cache/
+.pytest_cache/
+
+# Node.js
 node_modules/
-build/
 dist/
-coverage/
+.next/
+out/
+
+# Database & Infrastructure
+.env
+backend/.env
+parser_service/.env
+*.db
+*.sqlite
+
+# OS and IDE files
 .DS_Store
+.idea/
+.vscode/
 *.log
-.env*
-!.env.example
+
+# Backups (archived unsanctioned files)
+backups/
+
+# Personal documents, notes, and local development helper files
+NOTES.MD
+anchor/
+bugs/
+scratch/
+*.pid
+screenshot.png

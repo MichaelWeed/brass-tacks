@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Brass Tacks
+Comment=Local AI Resume Engineering Engine
+Exec=__REPO_PATH__/start.sh
+Icon=__REPO_PATH__/assets/icon.png
+Terminal=true
+Categories=Office;Development;
+StartupNotify=true

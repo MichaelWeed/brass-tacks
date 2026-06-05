@@ -1,0 +1,37 @@
+# Stage 1: Build application
+FROM node:20-alpine AS builder
+WORKDIR /app
+
+# Copy dependency configs
+COPY package.json package-lock.json ./
+RUN npm ci --silent
+
+# Copy project files
+COPY src ./src
+COPY public ./public
+COPY next.config.ts tsconfig.json eslint.config.mjs ./
+
+# Build Next.js project
+ENV NEXT_TELEMETRY_DISABLED=1
+ARG BACKEND_URL=http://api:8000
+ENV BACKEND_URL=$BACKEND_URL
+RUN npm run build
+
+# Stage 2: Production runner
+FROM node:20-alpine AS runner
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV BACKEND_URL=http://api:8000
+
+# Copy standalone build output and static assets
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+
+EXPOSE 3000
+
+CMD ["node", "server.js"]
