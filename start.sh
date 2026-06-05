@@ -16,6 +16,15 @@ COLOR_RED="\033[31m"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# Ensure .env exists
+if [ ! -f .env ]; then
+    if [ -f .env.example ]; then
+        cp .env.example .env
+    else
+        touch .env
+    fi
+fi
+
 NO_BROWSER=false
 DRY_RUN=false
 
@@ -40,6 +49,23 @@ echo "  ⚡───────────────────────
 echo "        BRASS TACKS : LOCAL RESUME ENGINE     "
 echo "  ⚡──────────────────────────────────────────⚡"
 echo -e "${COLOR_RESET}"
+
+# Check and prompt for Gemini API Key if missing
+if [ "$DRY_RUN" = false ]; then
+    if ! grep -q "^GEMINI_API_KEY=AI" .env && ! grep -q "^GEMINI_API_KEY=.[a-zA-Z0-9]" .env; then
+        echo -e "${HEX_COBALT}🔑 GEMINI API KEY REQUIRED${COLOR_RESET}"
+        echo "Brass Tacks needs a free Gemini API key to write your resumes."
+        echo "Get one here: https://aistudio.google.com/apikey"
+        echo ""
+        read -r -p "Paste your Gemini API key here and press Enter: " user_key
+        if [ -n "$user_key" ]; then
+            sed "s/^GEMINI_API_KEY=.*/GEMINI_API_KEY=$user_key/" .env > .env.tmp && mv .env.tmp .env
+            echo -e "${COLOR_GREEN}✓ API key saved successfully!${COLOR_RESET}\n"
+        else
+            echo -e "${COLOR_RED}Warning: API key was left empty. You will need to add it to the .env file manually before launching.${COLOR_RESET}\n"
+        fi
+    fi
+fi
 
 # Verify Container Engine (Podman or Docker)
 CONTAINER_ENGINE=""

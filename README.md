@@ -26,36 +26,31 @@ Brass Tacks runs completely on your own computer, but it uses an AI model to rea
   3. Click the blue **"Create API Key"** button at the top left.
   4. Copy the long string of letters and numbers (this is your key). Keep it secret!
 
-### 2. Install Podman (The container runner)
+### 2. Make sure you have a helper runner (Docker or Podman)
 
-Brass Tacks runs inside a secure, private sandbox on your machine called a "container". You'll need to install a helper application called **Podman** to run these containers:
+Brass Tacks runs inside a secure, private folder on your machine. To do this, it needs a free helper program. If you already have **Docker Desktop** or **Podman** installed, you are ready to go! If not:
 
-- **Mac**: Download and install from [Podman for Mac](https://podman.io/docs/installation). Or if you use Homebrew: `brew install podman`. After installing, open the Podman app to start it.
-- **Windows**: Download and install from [Podman for Windows](https://podman.io/docs/installation).
-- **Linux**: Run your package manager, e.g. `sudo apt install podman`.
+- **Mac**: We will offer to install it for you automatically when you launch the app! Or, you can download it from [Docker Desktop](https://www.docker.com/products/docker-desktop/) or [Podman Desktop](https://podman.io/docs/installation).
+- **Windows**: Download and install [Docker Desktop](https://www.docker.com/products/docker-desktop/) or [Podman Desktop](https://podman.io/docs/installation).
+- **Linux**: Run `sudo apt install podman` or `sudo apt install docker.io`.
 
-### 3. Setup and Launch
+### 3. Download and Run
 
-1. Open your computer's terminal (or command prompt).
-2. Download the project code:
-   ```bash
-   git clone https://github.com/your-username/tailorforge.git
-   cd tailorforge
-   ```
-3. Copy the configuration file:
-   ```bash
-   cp .env.example .env
-   ```
-4. Open the new `.env` file in any text editor (like Notepad or TextEdit) and find this line:
-   ```env
-   GEMINI_API_KEY=
-   ```
-   Paste your Gemini API key right after the `=` sign (e.g., `GEMINI_API_KEY=AIzaSyD...`). Save and close the file.
-5. Install the Brass Tacks app shortcut directly to your applications menu:
-   ```bash
-   ./install.sh
-   ```
-6. Look in your Applications folder or search Spotlight/Start Menu for **Brass Tacks** and open it! The app will open in your web browser at `http://localhost:3000` and guide you through the rest.
+1. **Download the code**:
+   - Click the green **"<> Code"** button at the top right of this GitHub page.
+   - Click **"Download ZIP"**.
+   - Find the downloaded ZIP file on your computer and double-click to unzip it.
+2. **Open the folder in your Terminal (or Command Prompt)**:
+   - Type `cd` followed by a space.
+   - Drag and drop the unzipped folder from your file manager directly into your Terminal window.
+   - Press **Enter**.
+3. **Install and Launch**:
+   - Type this command and press **Enter**:
+     ```bash
+     ./install.sh
+     ```
+   - The installer will automatically create your configuration files and ask you to paste your Gemini API key (from Step 1) directly in the console.
+   - A standalone **Brass Tacks** app shortcut will be added to your Applications folder / Start Menu. Double-click it to launch!
 
 ---
 
