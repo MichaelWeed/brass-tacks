@@ -11,6 +11,12 @@ That's not templating. That's resume engineering.
 
 ---
 
+### 📺 Watch the 2-Minute Demo
+[![Brass Tacks Demo Video](https://img.youtube.com/vi/YOUR_VIDEO_ID_HERE/0.jpg)](https://www.youtube.com/watch?v=YOUR_VIDEO_ID_HERE)
+*(Click above to watch how Brass Tacks works in real time!)*
+
+---
+
 ## 🔰 For Beginners (Get Started in 5 Minutes)
 
 You don't need to be a software developer or know how to write code to use Brass Tacks. Here is the simple, step-by-step guide to get up and running:
