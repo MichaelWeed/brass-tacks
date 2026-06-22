@@ -34,17 +34,43 @@ export default function OnboardingWizardPage() {
 
   // Verify user presence on mount
   useEffect(() => {
-    fetch('/api/v1/auth/check')
-      .then(res => res.json())
-      .then(data => {
-        setHasUsers(data.has_users);
+    const token = localStorage.getItem('tf_token');
+    if (token) {
+      setTimeout(() => {
+        setCurrentStep('upload');
         setIsLoading(false);
-      })
-      .catch(err => {
-        console.error('Failed to check user presence, assume first run:', err);
-        setHasUsers(false);
-        setIsLoading(false);
-      });
+      }, 0);
+    } else {
+      fetch('/api/v1/auth/check')
+        .then(res => res.json())
+        .then(data => {
+          setHasUsers(data.has_users);
+          setIsLoading(false);
+        })
+        .catch(err => {
+          console.error('Failed to check user presence, assume first run:', err);
+          setHasUsers(false);
+          setIsLoading(false);
+        });
+    }
+
+    // Restore draft onboarding progress on mount
+    const savedIdentity = localStorage.getItem('tf_identity');
+    if (savedIdentity) {
+      try {
+        const idObj = JSON.parse(savedIdentity);
+        setTimeout(() => {
+          if (idObj.name) setName(idObj.name);
+          if (idObj.email) setEmail(idObj.email);
+          if (idObj.phone) setPhone(idObj.phone);
+          if (idObj.location) setLocation(idObj.location);
+          if (idObj.website) setWebsite(idObj.website);
+          if (idObj.linkedin) setLinkedin(idObj.linkedin);
+        }, 0);
+      } catch (e) {
+        console.error("Failed to restore identity progress:", e);
+      }
+    }
   }, []);
 
   const handleQuickLogin = (existingEmail: string) => {
@@ -117,6 +143,10 @@ export default function OnboardingWizardPage() {
       
       const authData = await loginRes.json();
       localStorage.setItem('tf_token', authData.access_token);
+      
+      // Save identity early so users don't lose it if a subsequent step fails
+      const identityObj = { name, email, phone, location, website, linkedin };
+      localStorage.setItem('tf_identity', JSON.stringify(identityObj));
       
       // Advance to next step
       setIsLoading(false);

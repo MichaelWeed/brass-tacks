@@ -16,7 +16,7 @@ class VectorStore:
             api_key=settings.QDRANT_API_KEY or None,
             prefer_grpc=False
         )
-        self.embedding_model = "gemini/text-embedding-004"
+        self.embedding_model = settings.EMBEDDING_MODEL
 
     async def create_collections(self):
         """Initialize collections if they don't exist."""
@@ -32,7 +32,7 @@ class VectorStore:
             try:
                 await self.client.create_collection(
                     collection_name="master_profile_chunks",
-                    vectors_config=models.VectorParams(size=768, distance=models.Distance.COSINE)
+                    vectors_config=models.VectorParams(size=settings.EMBEDDING_DIM, distance=models.Distance.COSINE)
                 )
             except Exception as e:
                 logger.error(f"Failed to create master_profile_chunks: {e}")
@@ -42,17 +42,18 @@ class VectorStore:
             try:
                 await self.client.create_collection(
                     collection_name="job_descriptions",
-                    vectors_config=models.VectorParams(size=768, distance=models.Distance.COSINE)
+                    vectors_config=models.VectorParams(size=settings.EMBEDDING_DIM, distance=models.Distance.COSINE)
                 )
             except Exception as e:
                 logger.error(f"Failed to create job_descriptions: {e}")
 
     def _get_mock_embedding(self, text: str) -> List[float]:
-        """Generates a deterministic size-768 mock embedding from text for local/dev use without API keys."""
+        """Generates a deterministic size mock embedding from text for local/dev use without API keys."""
         import hashlib
+        dim = settings.EMBEDDING_DIM
         h = hashlib.sha256(text.encode('utf-8')).digest()
         vector = []
-        for i in range(768):
+        for i in range(dim):
             val = ((h[i % 32] + i) * 17) % 256
             vector.append(float(val) / 256.0 - 0.5)
         return vector

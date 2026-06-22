@@ -21,7 +21,11 @@ def check_users(db: Session = Depends(get_db)) -> Any:
 def login_access_token(
     db: Session = Depends(get_db), form_data: OAuth2PasswordRequestForm = Depends()
 ) -> Any:
-    """OAuth2 compatible token login, get an access token for future requests."""
+    """OAuth2 compatible token login.
+
+    NOTE: For the single-user local model, this functions as local identity selection.
+    No password verification is performed; it only verifies the user account exists by email.
+    """
     user = db.query(User).filter(User.email == form_data.username).first()
     if not user:
         raise HTTPException(
@@ -43,7 +47,11 @@ def register_user(
     db: Session = Depends(get_db),
     user_in: UserCreate,
 ) -> Any:
-    """Create new user."""
+    """Create new user.
+
+    NOTE: For seamless local onboarding convenience in a single-user setup,
+    if the user already exists by email, we return that existing user record.
+    """
     user = db.query(User).filter(User.email == user_in.email).first()
     if user:
         # For seamless local development, if user already exists, just return it

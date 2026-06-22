@@ -1,9 +1,20 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 export default function LandingPage() {
+  const router = useRouter();
+  const [dashboardPath, setDashboardPath] = useState('/login');
+
+  useEffect(() => {
+    const token = localStorage.getItem('tf_token');
+    const masterProfile = localStorage.getItem('tf_master_profile');
+    if (token && masterProfile) {
+      setDashboardPath('/dashboard');
+    }
+  }, []);
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-void)' }}>
       {/* Navbar */}
@@ -36,7 +47,7 @@ export default function LandingPage() {
           <div style={{ display: 'flex', gap: '2rem', alignItems: 'center' }}>
             <Link href="#features" style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Features</Link>
             <Link href="/about" style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>About Us</Link>
-            <Link href="/dashboard" className="btn-primary" style={{ padding: '0.5rem 1.25rem' }}>Enter Platform</Link>
+            <Link href={dashboardPath} className="btn-primary" style={{ padding: '0.5rem 1.25rem' }}>Enter Platform</Link>
           </div>
         </div>
       </nav>
@@ -84,10 +95,10 @@ export default function LandingPage() {
           </p>
           
           <div style={{ display: 'flex', gap: '1.5rem', justifyContent: 'center' }}>
-            <Link href="/dashboard" className="btn-primary" style={{ padding: '1rem 2.5rem', fontSize: '1rem' }}>
+            <Link href={dashboardPath} className="btn-primary" style={{ padding: '1rem 2.5rem', fontSize: '1rem' }}>
               Launch Dashboard
             </Link>
-            <Link href="/profile" className="btn-ghost" style={{ padding: '1rem 2.5rem', fontSize: '1rem', border: '1px solid var(--primary)', color: 'var(--primary)' }}>
+            <Link href="/login" className="btn-ghost" style={{ padding: '1rem 2.5rem', fontSize: '1rem', border: '1px solid var(--primary)', color: 'var(--primary)' }}>
               Sign Up / Import Profile
             </Link>
           </div>
@@ -140,7 +151,7 @@ export default function LandingPage() {
           <div>
             <h2 style={{ fontSize: '2.5rem', marginBottom: '1.5rem' }}>Why Brass Tacks?</h2>
             <p style={{ marginBottom: '1.5rem' }}>
-              Generic resumes are dead. Today&apos;s job market requires surgical precision. Brass Tacks was built to solve the &quot;AI Homogenization&quot; problem — where every applicant sounds identical.
+              Generic resumes are dead. Today&apos;s job market requires surgical precision. Brass Tacks was built to solve the &quot;AI Homogenization&quot; problem: where every applicant sounds identical.
             </p>
             <p style={{ marginBottom: '2rem' }}>
               By combining your deep personal work history (the freewriting Brain Dump) with advanced entity matching, we create documents that are uniquely yours and perfectly aligned with the role.

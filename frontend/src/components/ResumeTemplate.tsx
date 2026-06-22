@@ -148,39 +148,41 @@ export default function ResumeTemplate({ data }: { data: ResumeData }) {
       )}
 
       {/* Skills */}
-      <section>
-        <h2 style={{ 
-          fontSize: '1rem', 
-          fontWeight: 700, 
-          color: '#334155', 
-          textTransform: 'uppercase', 
-          letterSpacing: '0.1em',
-          borderBottom: '1px solid #e2e8f0',
-          paddingBottom: '6px',
-          marginBottom: '12px'
-        }}>
-          Technical Skills & Expertise
-        </h2>
-        <div style={{ 
-          display: 'flex', 
-          flexWrap: 'wrap', 
-          gap: '8px',
-          fontSize: '0.85rem'
-        }}>
-          {(data?.skills || []).map((skill, idx) => (
-            <span key={idx} style={{ 
-              border: '1px solid #e2e8f0', 
-              padding: '2px 10px', 
-              borderRadius: '4px', 
-              background: '#f8fafc',
-              color: '#475569',
-              fontWeight: 500
-            }}>
-              {skill}
-            </span>
-          ))}
-        </div>
-      </section>
+      {data?.skills && data.skills.length > 0 && (
+        <section>
+          <h2 style={{ 
+            fontSize: '1rem', 
+            fontWeight: 700, 
+            color: '#334155', 
+            textTransform: 'uppercase', 
+            letterSpacing: '0.1em',
+            borderBottom: '1px solid #e2e8f0',
+            paddingBottom: '6px',
+            marginBottom: '12px'
+          }}>
+            Technical Skills & Expertise
+          </h2>
+          <div style={{ 
+            display: 'flex', 
+            flexWrap: 'wrap', 
+            gap: '8px',
+            fontSize: '0.85rem'
+          }}>
+            {(data?.skills || []).map((skill, idx) => (
+              <span key={idx} style={{ 
+                border: '1px solid #e2e8f0', 
+                padding: '2px 10px', 
+                borderRadius: '4px', 
+                background: '#f8fafc',
+                color: '#475569',
+                fontWeight: 500
+              }}>
+                {skill}
+              </span>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

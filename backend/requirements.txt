@@ -7,12 +7,9 @@ litellm
 pydantic-settings
 python-multipart
 python-jose[cryptography]
-passlib[bcrypt]
 qdrant-client
-asyncpg
 httpx
 sse-starlette
 tenacity
 email-validator
-bcrypt
 beautifulsoup4

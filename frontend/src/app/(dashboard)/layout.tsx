@@ -14,30 +14,32 @@ export default function DashboardLayout({
 
   useEffect(() => {
     const token = localStorage.getItem('tf_token');
-    const timer = setTimeout(() => {
+    const masterProfile = localStorage.getItem('tf_master_profile');
+    
+    if (!token || !masterProfile) {
+      // Clear local auth states only if token is completely missing
       if (!token) {
-        // Clear local auth states
         localStorage.removeItem('tf_token');
         localStorage.removeItem('tf_profile_id');
         localStorage.removeItem('tf_master_profile');
-        setIsAuthenticated(false);
-        
-        setTimeout(() => {
-          // Redirection fallback as requested: /login with / fallback
-          router.push('/login');
-          // Let's also do a hard redirect check in case client router push fails or doesn't route
-          setTimeout(() => {
-            if (window.location.pathname === '/login') {
-              window.location.href = '/';
-            }
-          }, 1000);
-        }, 2500);
-      } else {
-        setIsAuthenticated(true);
       }
-    }, 0);
-
-    return () => clearTimeout(timer);
+      
+      setTimeout(() => {
+        setIsAuthenticated(false);
+        router.replace('/login');
+      }, 0);
+      
+      const fallbackTimer = setTimeout(() => {
+        if (window.location.pathname !== '/login') {
+          window.location.href = '/login';
+        }
+      }, 500);
+      return () => clearTimeout(fallbackTimer);
+    } else {
+      setTimeout(() => {
+        setIsAuthenticated(true);
+      }, 0);
+    }
   }, [router]);
 
   if (isAuthenticated === null) {
@@ -78,29 +80,18 @@ export default function DashboardLayout({
         background: 'var(--bg-void)',
         color: 'var(--text-main)',
         fontFamily: 'var(--font-sans)',
-        padding: '2rem',
       }}>
-        <div className="card" style={{
-          maxWidth: '460px',
-          width: '100%',
-          padding: '3rem 2.5rem',
-          textAlign: 'center',
-          border: '1px solid rgba(255, 87, 87, 0.3)',
-          boxShadow: '0 0 30px rgba(255, 87, 87, 0.05)',
-          background: 'var(--bg-surface)',
-          borderRadius: 'var(--radius-lg)',
-        }}>
-          <div style={{ fontSize: '3.5rem', marginBottom: '1.5rem' }}>🔒</div>
-          <h2 style={{ fontSize: '1.5rem', fontWeight: 800, marginBottom: '1rem', color: 'var(--error)', letterSpacing: '-0.02em' }}>
-            ACCESS DENIED
-          </h2>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.92rem', lineHeight: '1.7', marginBottom: '2rem' }}>
-            No active authentication session was detected. Access to the dashboard requires a secure credentials token to ensure data isolation.
-          </p>
-          <div className="loading" style={{ color: 'var(--text-dim)', fontSize: '0.82rem', letterSpacing: '0.04em' }}>
-            REDIRECTING TO AUTHENTICATION GATEWAY...
-          </div>
-        </div>
+        <div className="spin" style={{
+          width: '40px',
+          height: '40px',
+          border: '3px solid rgba(240, 165, 0, 0.1)',
+          borderTopColor: 'var(--primary)',
+          borderRadius: '50%',
+          marginBottom: '1.5rem',
+        }} />
+        <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+          REDIRECTING TO ONBOARDING SETUP...
+        </p>
       </div>
     );
   }

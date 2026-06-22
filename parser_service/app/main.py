@@ -21,8 +21,7 @@ async def parse_document(file: UploadFile = File(...)):
     try:
         result = converter.convert(tmp_path)
         return {
-            "markdown": result.document.export_to_markdown(),
-            "tables": [table.to_dict() for table in result.document.tables]
+            "markdown": result.document.export_to_markdown()
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Parsing failed: {str(e)}")

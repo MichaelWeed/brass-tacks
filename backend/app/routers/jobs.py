@@ -128,222 +128,214 @@ async def extract_job(
     req: Request,
     current_user: User = Depends(get_current_user)
 ):
-    """Extract job details from a URL.
-    
-    Company resolution priority:
-    1. Company name found in the page <title> tag (most accurate for acquired companies)
-    2. JSON-LD hiringOrganization.name (legal entity — may be the acquirer, not the brand)
-    3. Subdomain of the URL (e.g. kaleris.wd501.myworkdayjobs.com → Kaleris)
-    """
+    """Extract job details from a URL or raw text."""
     try:
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            )
-        }
-        
-        # Get pooled HTTP client from app state or fallback
-        client = getattr(req.app.state, "client", None)
-        should_close_client = False
-        if client is None:
-            limits = httpx.Limits(max_keepalive_connections=5, max_connections=20)
-            client = httpx.AsyncClient(limits=limits, timeout=10.0)
-            should_close_client = True
-        
-        url = request.url
-        max_redirects = 5
-        redirect_count = 0
-        resp_bytes = bytearray()
-        
-        try:
-            while redirect_count <= max_redirects:
-                # DNS & IP Subnet Guard: Resolve hostname, check against loopback/private,
-                # and obtain direct connection IP URL.
-                selected_ip, original_host, port, ip_url = resolve_and_verify_url(url)
+        url_str = request.url.strip()
+        is_url = False
+        if "\n" not in url_str and (url_str.startswith("http://") or url_str.startswith("https://")):
+            is_url = True
+
+        title = ""
+        company = "Unknown"
+        description = ""
+        company_context = ""
+        reference_urls = []
+
+        # If it is a single-line URL, attempt to crawl it
+        if is_url:
+            try:
+                headers = {
+                    "User-Agent": (
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/124.0.0.0 Safari/537.36"
+                    )
+                }
                 
-                # Build request directed at IP address to prevent DNS rebinding
-                req_obj = client.build_request("GET", ip_url, headers=headers)
+                # Get pooled HTTP client from app state or fallback
+                client = getattr(req.app.state, "client", None)
+                should_close_client = False
+                if client is None:
+                    limits = httpx.Limits(max_keepalive_connections=5, max_connections=20)
+                    client = httpx.AsyncClient(limits=limits, timeout=10.0)
+                    should_close_client = True
                 
-                # Set Host header and SNI hostname extension to preserve TLS/routing
-                req_obj.headers["Host"] = original_host
-                req_obj.extensions["sni_hostname"] = original_host
+                url = url_str
+                max_redirects = 5
+                redirect_count = 0
+                resp_bytes = bytearray()
                 
-                response = await client.send(req_obj, stream=True)
-                
-                if response.status_code in (301, 302, 303, 307, 308):
-                    location = response.headers.get("Location")
-                    await response.aclose()
-                    if not location:
-                        raise HTTPException(
-                            status_code=400,
-                            detail="Redirect response missing Location header."
-                        )
-                    # Resolve next redirect relative to current original unreplaced URL
-                    url = urljoin(url, location)
-                    redirect_count += 1
-                else:
-                    max_bytes = 5 * 1024 * 1024  # 5MB
-                    try:
-                        async for chunk in response.aiter_bytes(chunk_size=4096):
-                            resp_bytes.extend(chunk)
-                            if len(resp_bytes) > max_bytes:
+                try:
+                    while redirect_count <= max_redirects:
+                        selected_ip, original_host, port, ip_url = resolve_and_verify_url(url)
+                        
+                        req_obj = client.build_request("GET", ip_url, headers=headers)
+                        req_obj.headers["Host"] = original_host
+                        req_obj.extensions["sni_hostname"] = original_host
+                        
+                        response = await client.send(req_obj, stream=True)
+                        
+                        if response.status_code in (301, 302, 303, 307, 308):
+                            location = response.headers.get("Location")
+                            await response.aclose()
+                            if not location:
                                 raise HTTPException(
                                     status_code=400,
-                                    detail="Response payload exceeds maximum allowed size (5MB)."
+                                    detail="Redirect response missing Location header."
                                 )
-                    finally:
-                        await response.aclose()
-                    break
-            else:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Too many redirects."
-                )
-        finally:
-            if should_close_client:
-                await client.aclose()
-        
-        html_content = resp_bytes.decode("utf-8", errors="replace")
-        soup = BeautifulSoup(html_content, "html.parser")
-
-        # ── Helper: extract company from page <title> ──────────────────────────
-        # Workday titles look like: "AI Senior Solutions Architect - Kaleris"
-        # LinkedIn titles look like: "Job Title at Company | LinkedIn"
-        def _company_from_title(tag_text: str, job_title: str) -> str:
-            if not tag_text:
-                return ""
-            t = tag_text.strip()
-            # Strip trailing site names ("| LinkedIn", "| Workday", etc.)
-            for suffix in [" | LinkedIn", " | Glassdoor", " | Indeed", " | Workday"]:
-                if t.endswith(suffix):
-                    t = t[: -len(suffix)].strip()
-            # "Job Title - Company" or "Job Title at Company"
-            for sep in [" - ", " at ", " @ "]:
-                if sep in t:
-                    parts = t.split(sep, 1)
-                    candidate = parts[-1].strip()
-                    # Sanity: if the candidate contains the job title it's likely wrong
-                    if job_title and job_title.lower() in candidate.lower():
-                        continue
-                    if len(candidate) > 1:
-                        return candidate
-            return ""
-
-        # ── Helper: derive company from URL subdomain ──────────────────────────
-        def _company_from_url(url: str) -> str:
-            from urllib.parse import urlparse
-            host = urlparse(url).hostname or ""
-            # kaleris.wd501.myworkdayjobs.com → "kaleris"
-            sub = host.split(".")[0]
-            if sub and sub not in ("www", "jobs", "careers", "apply", "boards"):
-                return sub.capitalize()
-            return ""
-
-        # ── HTML Formatter Helper ──────────────────────────────────────────────
-        def _clean_html_to_text(element) -> str:
-            if not element:
-                return ""
-            import copy
-            el = copy.copy(element)
-            
-            # Decompose scripts, styles, etc.
-            for tag in el.find_all(["script", "style", "head", "nav", "footer", "iframe", "noscript"]):
-                tag.decompose()
-                
-            # Replace br with newline
-            for br in el.find_all("br"):
-                br.replace_with("\n")
-                
-            # Format list items
-            for li in el.find_all("li"):
-                text = li.get_text().strip()
-                if text:
-                    # check if it already starts with bullet characters
-                    if not any(text.startswith(char) for char in ["•", "-", "*"]):
-                        li.insert_before("\n• ")
-                    else:
-                        li.insert_before("\n")
-                        
-            # Format headers
-            for h in el.find_all(["h1", "h2", "h3", "h4", "h5", "h6"]):
-                h.insert_before("\n\n")
-                h.insert_after("\n")
-                
-            # Format paragraphs
-            for p in el.find_all("p"):
-                p.insert_before("\n\n")
-                p.insert_after("\n\n")
-                
-            raw_text = el.get_text(separator=" ")
-            
-            # Reconstruct lines without extra blank space
-            cleaned_lines = []
-            for line in raw_text.splitlines():
-                line_stripped = line.strip()
-                if line_stripped:
-                    cleaned_lines.append(line_stripped)
-                else:
-                    if cleaned_lines and cleaned_lines[-1] != "":
-                        cleaned_lines.append("")
-                        
-            return "\n".join(cleaned_lines).strip()
-
-        # ── Parse JSON-LD ──────────────────────────────────────────────────────
-        ld_title = ""
-        ld_company = ""
-        ld_desc = ""
-
-        ld_jsons = soup.find_all("script", type="application/ld+json")
-        for tag in ld_jsons:
-            try:
-                data = json.loads(tag.string)
-                if isinstance(data, list):
-                    for item in data:
-                        if isinstance(item, dict) and item.get("@type") == "JobPosting":
-                            data = item
+                            url = urljoin(url, location)
+                            redirect_count += 1
+                        else:
+                            max_bytes = 5 * 1024 * 1024  # 5MB
+                            try:
+                                async for chunk in response.aiter_bytes(chunk_size=4096):
+                                    resp_bytes.extend(chunk)
+                                    if len(resp_bytes) > max_bytes:
+                                        raise HTTPException(
+                                            status_code=400,
+                                            detail="Response payload exceeds maximum allowed size (5MB)."
+                                        )
+                            finally:
+                                await response.aclose()
                             break
-                if isinstance(data, dict) and data.get("@type") == "JobPosting":
-                    ld_title = data.get("title", "")
-                    if "hiringOrganization" in data:
-                        ld_company = data["hiringOrganization"].get("name", "")
-                    raw_desc = data.get("description", "")
-                    if "<" in raw_desc and ">" in raw_desc:
-                        desc_soup = BeautifulSoup(raw_desc, "html.parser")
-                        ld_desc = _clean_html_to_text(desc_soup)
                     else:
-                        ld_desc = raw_desc.strip()
-                    break
-            except Exception:
-                continue
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Too many redirects."
+                        )
+                finally:
+                    if should_close_client:
+                        await client.aclose()
+                
+                html_content = resp_bytes.decode("utf-8", errors="replace")
+                soup = BeautifulSoup(html_content, "html.parser")
 
-        # ── Resolve best description ───────────────────────────────────────────
-        if ld_desc:
-            description = ld_desc
+                # Helper: extract company from page title
+                def _company_from_title(tag_text: str, job_title: str) -> str:
+                    if not tag_text:
+                        return ""
+                    t = tag_text.strip()
+                    for suffix in [" | LinkedIn", " | Glassdoor", " | Indeed", " | Workday"]:
+                        if t.endswith(suffix):
+                            t = t[: -len(suffix)].strip()
+                    for sep in [" - ", " at ", " @ "]:
+                        if sep in t:
+                            parts = t.split(sep, 1)
+                            candidate = parts[-1].strip()
+                            if job_title and job_title.lower() in candidate.lower():
+                                continue
+                            if len(candidate) > 1:
+                                return candidate
+                    return ""
+
+                # Helper: derive company from URL subdomain
+                def _company_from_url(url: str) -> str:
+                    from urllib.parse import urlparse
+                    host = urlparse(url).hostname or ""
+                    sub = host.split(".")[0]
+                    if sub and sub not in ("www", "jobs", "careers", "apply", "boards"):
+                        return sub.capitalize()
+                    return ""
+
+                # HTML Formatter Helper
+                def _clean_html_to_text(element) -> str:
+                    if not element:
+                        return ""
+                    import copy
+                    el = copy.copy(element)
+                    for tag in el.find_all(["script", "style", "head", "nav", "footer", "iframe", "noscript"]):
+                        tag.decompose()
+                    for br in el.find_all("br"):
+                        br.replace_with("\n")
+                    for li in el.find_all("li"):
+                        text = li.get_text().strip()
+                        if text:
+                            if not any(text.startswith(char) for char in ["•", "-", "*"]):
+                                li.insert_before("\n• ")
+                            else:
+                                li.insert_before("\n")
+                    for h in el.find_all(["h1", "h2", "h3", "h4", "h5", "h6"]):
+                        h.insert_before("\n\n")
+                        h.insert_after("\n")
+                    for p in el.find_all("p"):
+                        p.insert_before("\n\n")
+                        p.insert_after("\n\n")
+                    raw_text = el.get_text(separator=" ")
+                    cleaned_lines = []
+                    for line in raw_text.splitlines():
+                        line_stripped = line.strip()
+                        if line_stripped:
+                            cleaned_lines.append(line_stripped)
+                        else:
+                            if cleaned_lines and cleaned_lines[-1] != "":
+                                cleaned_lines.append("")
+                    return "\n".join(cleaned_lines).strip()
+
+                # Parse JSON-LD
+                ld_title = ""
+                ld_company = ""
+                ld_desc = ""
+
+                ld_jsons = soup.find_all("script", type="application/ld+json")
+                for tag in ld_jsons:
+                    try:
+                        data = json.loads(tag.string)
+                        if isinstance(data, list):
+                            for item in data:
+                                if isinstance(item, dict) and item.get("@type") == "JobPosting":
+                                    data = item
+                                    break
+                        if isinstance(data, dict) and data.get("@type") == "JobPosting":
+                            ld_title = data.get("title", "")
+                            if "hiringOrganization" in data:
+                                ld_company = data["hiringOrganization"].get("name", "")
+                            raw_desc = data.get("description", "")
+                            if "<" in raw_desc and ">" in raw_desc:
+                                desc_soup = BeautifulSoup(raw_desc, "html.parser")
+                                ld_desc = _clean_html_to_text(desc_soup)
+                            else:
+                                ld_desc = raw_desc.strip()
+                            break
+                    except Exception:
+                        continue
+
+                # Resolve best description
+                if ld_desc:
+                    description = ld_desc
+                else:
+                    main_content = (
+                        soup.find("main")
+                        or soup.find(id=lambda x: x and "job" in x.lower() and "desc" in x.lower())
+                        or soup.body
+                    )
+                    description = _clean_html_to_text(main_content or soup)[:15000]
+
+                # Resolve best title
+                page_title_raw = soup.title.string.strip() if soup.title and soup.title.string else ""
+                title = ld_title or page_title_raw or ""
+
+                # Resolve best company
+                company = (
+                    _company_from_title(page_title_raw, title)
+                    or _company_from_url(url_str)
+                    or ld_company
+                    or "Unknown"
+                )
+
+            except Exception as crawl_err:
+                logger.warning(f"Crawling failed, falling back to raw text processing: {crawl_err}")
+                description = url_str
+                is_url = False
         else:
-            main_content = (
-                soup.find("main")
-                or soup.find(id=lambda x: x and "job" in x.lower() and "desc" in x.lower())
-                or soup.body
-            )
-            description = _clean_html_to_text(main_content or soup)[:15000]
-
-        # ── Resolve best title ─────────────────────────────────────────────────
-        page_title_raw = soup.title.string.strip() if soup.title and soup.title.string else ""
-        title = ld_title or page_title_raw or ""
-
-        # ── Resolve best company (priority: page title > URL > JSON-LD) ───────
-        company = (
-            _company_from_title(page_title_raw, title)
-            or _company_from_url(request.url)
-            or ld_company
-            or "Unknown"
-        )
+            description = url_str
 
         # Fallback default values
+        if not title:
+            title = ""
+        if not company or company == "Unknown":
+            company = "Unknown"
         company_context = f"Applying to {company} as {title}."
-        reference_urls = [request.url]
+        reference_urls = [url_str] if is_url else []
 
         # ── LLM Extraction Refinement ───────────────────────────────────────────
         model = None
@@ -352,25 +344,16 @@ async def extract_job(
         if request.api_provider and request.api_key:
             provider = request.api_provider.lower()
             key_stripped = request.api_key.strip()
-            
-            if provider == "openai":
-                model = "openai/gpt-4o-mini"
-                custom_key = key_stripped
-            elif provider == "anthropic":
-                model = "anthropic/claude-3-5-sonnet"
-                custom_key = key_stripped
-            elif provider == "google":
-                model = "gemini/gemini-2.5-flash"
-                custom_key = key_stripped
-            elif provider == "grok":
-                model = "xai/grok-beta"
-                custom_key = key_stripped
+            from app.services.drafter import resolve_model
+            model = resolve_model(provider, "fast")
+            custom_key = key_stripped
 
         # Fallback to system default Gemini key if custom credentials are not provided
         if not model or not custom_key:
             from app.core.config import settings
             if settings.GEMINI_API_KEY:
-                model = "gemini/gemini-2.5-flash"
+                from app.services.drafter import resolve_model
+                model = resolve_model("google", "fast")
                 custom_key = settings.GEMINI_API_KEY
 
         if model and custom_key:
@@ -378,25 +361,41 @@ async def extract_job(
                 from litellm import acompletion
                 
                 # Truncate raw description snippet to avoid token limits
-                snippet = description[:4000]
+                snippet = description[:8000]
                 
-                prompt = f"""
-                You are a high-precision job parsing assistant.
-                Based on the following URL and Web Page content snippet, extract:
-                1. The clean brand/company name of the hiring organization ("company"). Ensure you resolve acquisitions if applicable (e.g. if the company name in the posting is 'Navis LP' or 'Navis' but they have been acquired by 'Kaleris' or the posting is on a Kaleris careers site, output the correct brand 'Kaleris'). Avoid AI-slop brand names.
-                2. The precise job/role title ("title", e.g. 'AI Senior Solutions Architect').
-                3. A brief, high-fidelity context string about the company ("company_context"), including any acquisition history or company description context if relevant to calm an anxious applicant (e.g., "Kaleris acquired Navis in 2021; Navis is a brand under Kaleris."). If there's no complex context, just a short 1-sentence summary of what the company does.
-                4. A list of 1 to 3 relevant reference URLs ("reference_urls") related to this hiring organization or job portal (e.g., their main website domain, active career portals, or relevant press/reference pages parsed or derived).
+                if is_url:
+                    prompt = f"""
+                    You are a high-precision job parsing assistant.
+                    Based on the following URL and Web Page content snippet, extract:
+                    1. The clean brand/company name of the hiring organization ("company"). Ensure you resolve acquisitions if applicable (e.g. if the company name in the posting is 'Navis LP' or 'Navis' but they have been acquired by 'Kaleris' or the posting is on a Kaleris careers site, output the correct brand 'Kaleris'). Avoid AI-slop brand names.
+                    2. The precise job/role title ("title", e.g. 'AI Senior Solutions Architect').
+                    3. A brief, high-fidelity context string about the company ("company_context"), including any acquisition history or company description context if relevant. If there's no complex context, just a short 1-sentence summary of what the company does.
+                    4. A list of 1 to 3 relevant reference URLs ("reference_urls") related to this hiring organization or job portal.
 
-                URL: {request.url}
-                Page Title parsed: {title}
-                JSON-LD parsed Company: {ld_company}
+                    URL: {url_str}
+                    Page Title parsed: {title}
+                    JSON-LD parsed Company: {ld_company if 'ld_company' in locals() else ''}
 
-                CONTENT SNIPPET:
-                {snippet}
+                    CONTENT SNIPPET:
+                    {snippet}
 
-                Return ONLY a JSON object with exactly these keys: "company", "title", "company_context", and "reference_urls". Do NOT output any markdown tags or thoughts, just the raw JSON.
-                """
+                    Return ONLY a JSON object with exactly these keys: "company", "title", "company_context", and "reference_urls". Do NOT output any markdown tags or thoughts, just the raw JSON.
+                    """
+                else:
+                    prompt = f"""
+                    You are a high-precision job parsing assistant.
+                    Based on the following pasted text (which may contain a job posting, URL, recruiter details, and copy-paste artifacts), extract:
+                    1. The clean brand/company name of the hiring organization ("company"). Prefer the main business/brand name. Do NOT output a URL or generic placeholder. If you cannot find the company, return "Unknown".
+                    2. The precise job/role title ("title"). If you cannot find the job title, return "Unknown".
+                    3. A clean, formatted job description ("description") with any irrelevant recruiter contact details, URLs, or unrelated headers stripped from the start/end.
+                    4. A brief, high-fidelity context string about the company ("company_context").
+                    5. A list of 1 to 3 relevant reference URLs ("reference_urls") mentioned in the text (if any).
+
+                    TEXT:
+                    {snippet}
+
+                    Return ONLY a JSON object with exactly these keys: "company", "title", "description", "company_context", and "reference_urls". Do NOT output any markdown tags or thoughts, just the raw JSON.
+                    """
                 
                 response = await acompletion(
                     model=model,
@@ -409,18 +408,24 @@ async def extract_job(
                 parsed_res = json.loads(llm_text)
                 if isinstance(parsed_res, dict):
                     if "company" in parsed_res and parsed_res["company"]:
-                        company = parsed_res["company"].strip()
+                        comp_val = parsed_res["company"].strip()
+                        if comp_val.lower() != "unknown":
+                            company = comp_val
                     if "title" in parsed_res and parsed_res["title"]:
-                        title = parsed_res["title"].strip()
+                        title_val = parsed_res["title"].strip()
+                        if title_val.lower() != "unknown":
+                            title = title_val
                     if "company_context" in parsed_res and parsed_res["company_context"]:
                         company_context = parsed_res["company_context"].strip()
                     if "reference_urls" in parsed_res and parsed_res["reference_urls"]:
                         raw_urls = parsed_res["reference_urls"]
                         if isinstance(raw_urls, list):
                             reference_urls = [str(u).strip() for u in raw_urls if u]
+                    if not is_url and "description" in parsed_res and parsed_res["description"]:
+                        description = parsed_res["description"].strip()
             except Exception as llm_err:
-                # Fall back gracefully to parsing output
-                pass
+                # Fall back gracefully
+                logger.warning(f"LLM refinement failed: {llm_err}")
 
         return ExtractResponse(
             title=title,
@@ -431,6 +436,8 @@ async def extract_job(
             reference_urls=reference_urls,
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to extract job: {str(e)}")
 

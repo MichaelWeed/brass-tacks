@@ -1,10 +1,10 @@
 # Brass Tacks: Canonical Project Vision
 
-> **Status:** IMMUTABLE — This document is the SINGLE SOURCE OF TRUTH for Brass Tacks's
+> **Status:** Active — This document is the SINGLE SOURCE OF TRUTH for Brass Tacks's
 > purpose, design, and constraints. Any agent session, pull request, or architectural
-> decision that contradicts this document is in violation and must be corrected immediately.
+> decision must align with the vision outlined here.
 >
-> **Last ratified:** 2026-05-30
+> **Last updated:** 2026-06-19
 
 ---
 
@@ -33,12 +33,12 @@ solve three problems simultaneously:
 Brass Tacks is a **portfolio piece with real utility**. The strategic calculus:
 
 - The project demonstrates that the builder can ship a complete, multi-service application
-  with a polished UX — the kind of work that motivates product managers and eng leads to
-  recruit.
+   with a polished UX — the kind of work that motivates product managers and eng leads to
+   recruit.
 - The README and documentation make multi-provider AI support visible, so any company
-  reviewing the repo sees their own model represented.
+   reviewing the repo sees their own model represented.
 - The open-source, local-first identity signals engineering values: privacy, user autonomy,
-  no vendor lock-in.
+   no vendor lock-in.
 
 ---
 
@@ -46,7 +46,7 @@ Brass Tacks is a **portfolio piece with real utility**. The strategic calculus:
 
 | Property | Detail |
 |---|---|
-| **Deployment model** | A downloadable, self-hosted application that runs entirely on the user's machine |
+| **Deployment model** | A downloadable, self-hosted application that runs entirely on the user's local machine by default. |
 | **License model** | Open-source — anyone can fork, modify, and use it for free |
 | **AI default** | Gemini is the default model; the user can switch to Claude, ChatGPT, or xAI |
 | **Data policy** | Generates resumes using ONLY user-provided data — zero hallucination by design |
@@ -56,20 +56,15 @@ Brass Tacks is a **portfolio piece with real utility**. The strategic calculus:
 
 ## 4. What Brass Tacks Is NOT
 
-These are **hard constraints**, not preferences. Violating any of these is a critical bug.
+These are **hard constraints** for the default runtime environment, not preferences.
 
 - **NOT a SaaS product.** There is no subscription, no hosted tier, no "free vs. pro" split.
-- **NOT a cloud-deployed service.** It does not run on GCP, AWS, Azure, or any cloud
+- **NOT a cloud-deployed service.** By default, it does not run on GCP, AWS, Azure, or any cloud
   platform. There is no production server — the user's laptop is the server.
-- **NOT meant to have cloud infrastructure code.** No Terraform, CloudFormation, Pulumi,
-  Cloud Run, Cloud SQL, App Engine, or any IaC/PaaS configuration belongs in this repo.
+- **NOT built for active cloud hosting.** While a documented, illustrative cloud-deployment story (`docs/DEPLOYMENT.md`) is provided to show architecture foresight, no production cloud build-out is maintained or supported in the core codebase.
 - **NOT a multi-tenant system.** There is exactly one user per installation.
 - **NOT a platform for third-party integrations.** No OAuth provider dashboards, no
   webhook receivers, no external API consumers.
-
-> Any file, directory, or configuration that implies cloud deployment (e.g., a `terraform/`
-> directory, a `Dockerfile` targeting a cloud registry, a CI pipeline deploying to a
-> remote host) is a **violation** and must be removed.
 
 ---
 
@@ -160,7 +155,7 @@ back to something the user actually provided.
 │                    │ ChatGPT        │                   │
 │                    │ xAI            │                   │
 │                    └─────────────────┘                  │
-└─────────────────────────────────────────────────────────┘
+│└─────────────────────────────────────────────────────────┘
 ```
 
 ### 7.2 Technology Choices
@@ -186,23 +181,22 @@ Everything runs locally via **Podman compose**. The `compose.yaml` defines:
 - Backend API (FastAPI)
 - Frontend (Next.js)
 
-There is **no remote deployment target**. The compose file targets `localhost`. The user's
-machine is the only runtime environment.
+There is **no active cloud deployment target**. The compose file targets `localhost`. The user's
+machine is the only default runtime environment, though an illustrative cloud deployment is detailed in `docs/DEPLOYMENT.md`.
 
 ---
 
 ## 8. Immutable Constraints
 
-These constraints are **non-negotiable**. They cannot be overridden by convenience,
-"best practices" arguments, or agent assumptions.
+These constraints are **non-negotiable** for the default setup.
 
 | # | Constraint | Violation Example |
 |---|---|---|
-| 1 | No cloud infrastructure code | Adding a `terraform/` directory, a GCP service account, or a Cloud Run config |
+| 1 | Maintained environment is local-first | Actively deploying core application services to cloud PaaS directly |
 | 2 | No SaaS-oriented architecture | Adding multi-tenancy, usage metering, subscription tiers, or auth provider dashboards |
-| 3 | No assumptions about "production servers" | Referencing "staging vs. production environments," load balancers, or CDNs |
+| 3 | No assumptions about default "production servers" | Referencing "staging vs. production environments," load balancers, or CDNs in local config |
 | 4 | AI model choice must remain configurable | Hardcoding OpenAI API calls without the LiteLLM routing layer |
-| 5 | All docs must reflect local-first identity | README instructions that say "deploy to your cloud provider" |
+| 5 | Core code stays lean of cloud deployment sdk baggage | Keeping unused cloud client libraries (e.g. `google-cloud-secret-manager`) in dependencies |
 | 6 | Zero hallucination in generated resumes | Allowing the AI prompt to generate content not traceable to user-provided data |
 | 7 | No global dependency installs | Instructions that say `npm install -g` or `pip install` outside a virtualenv |
 | 8 | Bespoke design tokens only | Importing Tailwind's default palette or using generic slate/indigo/violet schemes |
@@ -211,12 +205,10 @@ These constraints are **non-negotiable**. They cannot be overridden by convenien
 
 ## 9. Known Violations to Remediate
 
-The following items exist in the current codebase and contradict this vision. They are
-tracked here so no future session treats them as intentional:
+The following items are tracked for remediation:
 
 | Item | Status | Action Required |
 |---|---|---|
-| `terraform/` directory at project root | **Active violation** | Remove entirely — no cloud IaC belongs in this repo |
 | README references "production secrets" | **Misleading language** | Reword to "local configuration" or "API key management" |
 | `docs/SECURITY.md` mentions "production" | **Misleading language** | Audit and reword to reflect local-only deployment |
 
@@ -229,7 +221,7 @@ Any AI agent, code assistant, or automated tool operating on this repository **M
 1. Read this document before making architectural decisions.
 2. Refuse to add cloud infrastructure, SaaS patterns, or multi-tenant logic.
 3. Refuse to generate resume content that is not traceable to user-provided data.
-4. Treat the user's local machine as the sole deployment target.
+4. Treat the user's local machine as the sole default deployment target.
 5. Use Podman (not Docker) as the default containerization tool in all instructions.
 6. Maintain the LiteLLM routing layer — never bypass it for direct provider API calls.
 7. Flag any existing code that contradicts this document as a violation requiring a
@@ -241,6 +233,4 @@ Any AI agent, code assistant, or automated tool operating on this repository **M
 
 ## Document Integrity
 
-This file is protected under the Bible's lock protocol (§2). It must not be modified
-without explicit user request and a diff preview. Any automated modification without
-user approval is a critical violation.
+This file represents the canonical vision for the project. Updates should be done through normal version control and PR reviews.

@@ -11,9 +11,12 @@ class Settings(BaseSettings):
     DATABASE_URL: str = ""
     QDRANT_API_KEY: str = ""
     QDRANT_URL: str = ""
+    TAVILY_API_KEY: str = ""
+    FIDELITY_THRESHOLD: float = 0.85
+    EMBEDDING_MODEL: str = "gemini/text-embedding-004"
+    EMBEDDING_DIM: int = 768
     # Services
-    PARSER_SERVICE_URL: str = "http://localhost:8080"
-    DRONE_API_URL: str = "http://localhost:8001"
+    PARSER_SERVICE_URL: str = "http://localhost:8081"
     
     # Security
     SECRET_KEY: str = "super-secret-dev-key"

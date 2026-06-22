@@ -13,8 +13,20 @@ from app.models.models import Base, User
 from app.main import app
 from app.api.deps import get_db, get_current_user
 
-# Initialize test database engine (using the development Postgres database)
-engine = create_engine(settings.DATABASE_URL)
+test_db_url = os.getenv("TEST_DATABASE_URL")
+if not test_db_url:
+    raise RuntimeError(
+        "TEST_DATABASE_URL environment variable is missing. "
+        "A separate test database is required to run the test suite."
+    )
+if not test_db_url.endswith("_test"):
+    raise RuntimeError(
+        "TEST_DATABASE_URL must end in '_test' to prevent accidental "
+        "pollution of the development database."
+    )
+
+# Initialize test database engine
+engine = create_engine(test_db_url)
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # Ensure all database tables exist before running the test suite

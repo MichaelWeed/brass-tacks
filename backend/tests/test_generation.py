@@ -86,14 +86,61 @@ def test_list_provider_models_validation(client):
     response = client.post("/api/v1/generation/models", json=payload_missing_fields)
     assert response.status_code == 422 # Pydantic schema validation raises 422
 
-def test_generation_events_run_not_found(client):
+def test_generation_events_run_not_found(client, mock_user):
     """Test fetching generation events stream for non-existent run ID."""
+    from jose import jwt
+    from app.core.config import settings
+    token = jwt.encode({"sub": str(mock_user.id)}, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    
     random_uuid = uuid.uuid4()
     # Fetching events stream should return the first SSE event indicating Run not found
-    response = client.get(f"/api/v1/generation/events/{random_uuid}")
+    response = client.get(f"/api/v1/generation/events/{random_uuid}?token={token}")
     # SSE responses are returned with text/event-stream content type
     assert "text/event-stream" in response.headers["content-type"]
     
     # We can read the first line/event of the response
     body_text = response.text
     assert "Run not found" in body_text
+
+def test_get_generation_run_success(client, db, mock_user):
+    """Test fetching details of an existing generation run."""
+    profile = MasterProfile(
+        user_id=mock_user.id,
+        raw_text="Test profile raw text",
+        is_active=True
+    )
+    job = Job(
+        user_id=mock_user.id,
+        company="Test Corp",
+        title="Test Role",
+        raw_text="Test Job raw text"
+    )
+    db.add_all([profile, job])
+    db.commit()
+
+    run = GenerationRun(
+        user_id=mock_user.id,
+        profile_id=profile.id,
+        job_id=job.id,
+        output_type="resume",
+        status="complete",
+        final_output="# Jane Dev\n...",
+        fidelity_score=0.92
+    )
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+
+    response = client.get(f"/api/v1/generation/{run.id}")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["id"] == str(run.id)
+    assert data["status"] == "complete"
+    assert data["final_output"] == "# Jane Dev\n..."
+    assert data["fidelity_score"] == 0.92
+
+def test_get_generation_run_not_found(client, mock_user):
+    """Test fetching a non-existent generation run ID."""
+    random_uuid = uuid.uuid4()
+    response = client.get(f"/api/v1/generation/{random_uuid}")
+    assert response.status_code == 404

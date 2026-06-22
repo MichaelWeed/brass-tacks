@@ -110,7 +110,7 @@ class GenerationRun(Base):
     noise_seed = Column(Integer)
     model_costs = Column(JSONB)
     error_message = Column(Text)
-    cloud_task_id = Column(String)
+    fidelity_score = Column(REAL)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     completed_at = Column(DateTime(timezone=True))
 

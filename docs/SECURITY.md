@@ -42,7 +42,7 @@ Periodically rotate your secrets, especially `SECRET_KEY` and any API keys:
 
 Brass Tacks uses **JWT (JSON Web Tokens)** for Bearer authentication.
 
-1. **Token Retrieval**: Call `POST /api/v1/auth/token` with valid credentials.
+1. **Token Retrieval**: Call `POST /api/v1/auth/login` with valid credentials.
 2. **Usage**: Include the token in the `Authorization` header:
    ```http
    Authorization: Bearer <your_jwt_token>

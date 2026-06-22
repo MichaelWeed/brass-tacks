@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from app.api.deps import get_db, get_current_user
 from app.models.models import User, GenerationRun, MasterProfile, Job
-from app.schemas.generation import GenerationCreate, GenerationResponse, ModelsRequest, ModelItem
+from app.schemas.generation import GenerationCreate, GenerationResponse, ModelsRequest, ModelItem, GenerationDetailResponse
 from app.services.drafter import ai_drafter
 from app.services.math_validator import math_validator
 from app.services.qdrant_client import vector_store
@@ -81,7 +81,8 @@ async def start_generation(
         run.id, 
         data.api_provider, 
         data.api_key, 
-        data.model_id,
+        data.fast_model_id,
+        data.smart_model_id,
         semaphore
     )
     
@@ -198,6 +199,21 @@ async def list_provider_models(data: ModelsRequest):
 
 from app.core.db import SessionLocal
 
+@router.get("/{run_id}", response_model=GenerationDetailResponse)
+def get_generation_run(
+    run_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Fetch details of a specific generation run, including generated outputs."""
+    run = db.query(GenerationRun).filter(
+        GenerationRun.id == run_id,
+        GenerationRun.user_id == current_user.id
+    ).first()
+    if not run:
+        raise HTTPException(status_code=404, detail="Generation run not found")
+    return run
+
 @router.get("/events/{run_id}")
 async def generation_events(
     run_id: uuid.UUID,
@@ -210,16 +226,28 @@ async def generation_events(
     user = None
     if token:
         try:
-            from app.api.deps import get_current_user
-            user = await get_current_user(token=token, db=db)
-        except Exception:
-            pass
+            from jose import jwt
+            from app.core.config import settings
+            from app.models.models import User
+            payload = jwt.decode(
+                token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
+            )
+            user_id = payload.get("sub")
+            if user_id:
+                user = db.query(User).filter(User.id == user_id).first()
+        except Exception as e:
+            logger.error(f"SSE authentication failed: {str(e)}")
+            raise HTTPException(
+                status_code=403,
+                detail="Could not validate credentials",
+            )
     
-    # In local dev/demo, we might allow bypass if settings allow, 
-    # but let's be strict or at least log.
     if not user:
-        logger.warning(f"SSE connection without valid token for run {run_id}")
-        # For now, we continue to allow debugging, but in prod this would raise 401
+        logger.warning(f"SSE connection refused: missing or invalid token for run {run_id}")
+        raise HTTPException(
+            status_code=401,
+            detail="Not authenticated",
+        )
 
     async def event_generator():
         import time
@@ -269,11 +297,15 @@ async def process_generation_pipeline(
     run_id: uuid.UUID,
     api_provider: Optional[str] = None,
     api_key: Optional[str] = None,
-    model_id: Optional[str] = None,
+    fast_model_id: Optional[str] = None,
+    smart_model_id: Optional[str] = None,
     semaphore: Optional[asyncio.Semaphore] = None
 ):
-    """Main asynchronous pipeline for resume tailoring."""
+    """Main asynchronous pipeline for resume tailoring with grade-and-revise loop and deterministic check."""
     async def execute():
+        from app.core.config import settings
+        from app.core.utils import verify_deterministic_fidelity
+        
         with SessionLocal() as db:
             try:
                 run = db.query(GenerationRun).filter(GenerationRun.id == run_id).first()
@@ -292,7 +324,6 @@ async def process_generation_pipeline(
                 run.status = "canonizing"
                 db.commit()
                 
-                # Search for chunks relevant to the job description
                 try:
                     chunks = await vector_store.search_profile(
                         profile_id=profile.id, 
@@ -304,9 +335,26 @@ async def process_generation_pipeline(
                     chunks = None
                 
                 if not chunks:
-                    # Fallback to raw text if search fails or no chunks found
-                    chunks = [profile.raw_text[:4000]] # Simple truncation
+                    chunks = [profile.raw_text[:4000]]
                 
+                # STAGE 1b: Supplementary Context Fetch
+                from app.services.search import get_search_provider
+                supplementary_context = ""
+                try:
+                    search_provider = await get_search_provider()
+                    if search_provider and job.company and job.title:
+                        logger.info(f"Fetching supplementary web context for: {job.company} {job.title}")
+                        search_results = await search_provider.search(f"{job.company} {job.title}")
+                        if search_results:
+                            context_blocks = []
+                            for r in search_results:
+                                context_blocks.append(
+                                    f"Title: {r['title']}\nURL: {r['url']}\nSnippet: {r['content']}"
+                                )
+                            supplementary_context = "\n\n".join(context_blocks)
+                except Exception as se:
+                    logger.warning(f"Supplementary web search failed (proceeding without it): {se}")
+
                 # STAGE 2: Math Pre-Computation
                 run.status = "drafting"
                 db.commit()
@@ -315,30 +363,128 @@ async def process_generation_pipeline(
                 metrics = math_validator.extract_and_compute(context)
                 ground_truth = math_validator.generate_ground_truth(metrics)
                 
-                # STAGE 3: Drafting
+                # STAGE 3: Drafting Resume and/or Cover Letter
+                cover_letter_text = None
+                if run.output_type in ("cover_letter", "both"):
+                    cover_letter_text = await ai_drafter.generate_cover_letter(
+                        chunks,
+                        job.raw_text,
+                        ground_truth,
+                        run.weirdness_level,
+                        api_provider=api_provider,
+                        api_key=api_key,
+                        model_id=fast_model_id,
+                        supplementary_context=supplementary_context,
+                        company=job.company,
+                        job_title=job.title
+                    )
+
+                if run.output_type == "cover_letter":
+                    run.draft_output = cover_letter_text
+                    run.final_output = cover_letter_text
+                    run.status = "complete"
+                    db.commit()
+                    return
+
+                # Resume path: Draft -> Critique -> Bounded Revision
                 draft = await ai_drafter.generate_draft(
-                    chunks, 
+                    chunks,
                     job.raw_text,
                     ground_truth,
                     run.weirdness_level,
                     api_provider=api_provider,
                     api_key=api_key,
-                    model_id=model_id
+                    model_id=fast_model_id,
+                    supplementary_context=supplementary_context
                 )
-                run.draft_output = draft
                 
-                # STAGE 4: Critique
+                if run.output_type == "both":
+                    run.draft_output = json.dumps({
+                        "resume": draft,
+                        "cover_letter": cover_letter_text
+                    })
+                else:
+                    run.draft_output = draft
+                db.commit()
+
+                # STAGE 4: Critique (using Smart model)
                 run.status = "critiquing"
                 db.commit()
                 critique = await ai_drafter.generate_critique(
-                    draft, 
+                    draft,
                     job.raw_text,
                     api_provider=api_provider,
                     api_key=api_key,
-                    model_id=model_id
+                    model_id=smart_model_id
                 )
                 run.critique_json = critique
-                
+
+                fidelity_score = critique.get("fidelityScore", 1.0)
+                run.fidelity_score = fidelity_score
+                db.commit()
+
+                # STAGE 5: Bounded Revision (using Fast model) & Re-critique (using Smart model)
+                max_revisions = 2
+                revision_count = 0
+                suggested_fixes = critique.get("suggestedFixes", [])
+
+                while fidelity_score < settings.FIDELITY_THRESHOLD and suggested_fixes and revision_count < max_revisions:
+                    revision_count += 1
+                    run.status = "revising"
+                    db.commit()
+
+                    logger.info(f"Fidelity score ({fidelity_score}) below threshold ({settings.FIDELITY_THRESHOLD}). Revision attempt {revision_count}/{max_revisions}.")
+
+                    revised_draft = await ai_drafter.revise_draft(
+                        draft,
+                        suggested_fixes,
+                        chunks,
+                        job.raw_text,
+                        api_provider=api_provider,
+                        api_key=api_key,
+                        model_id=fast_model_id
+                    )
+                    draft = revised_draft
+                    
+                    if run.output_type == "both":
+                        run.draft_output = json.dumps({
+                            "resume": draft,
+                            "cover_letter": cover_letter_text
+                        })
+                    else:
+                        run.draft_output = draft
+                    db.commit()
+
+                    run.status = "critiquing"
+                    db.commit()
+
+                    re_critique = await ai_drafter.generate_critique(
+                        draft,
+                        job.raw_text,
+                        api_provider=api_provider,
+                        api_key=api_key,
+                        model_id=smart_model_id
+                    )
+                    run.critique_json = re_critique
+                    fidelity_score = re_critique.get("fidelityScore", 1.0)
+                    run.fidelity_score = fidelity_score
+                    suggested_fixes = re_critique.get("suggestedFixes", [])
+                    db.commit()
+
+                # STAGE 6: Deterministic Backstop check & Completion
+                source_contexts = chunks + [ground_truth]
+                if supplementary_context:
+                    source_contexts.append(supplementary_context)
+
+                verify_deterministic_fidelity(draft, source_contexts)
+
+                if run.output_type == "both":
+                    run.final_output = json.dumps({
+                        "resume": draft,
+                        "cover_letter": cover_letter_text
+                    })
+                else:
+                    run.final_output = draft
                 run.status = "complete"
                 db.commit()
                 
@@ -346,7 +492,6 @@ async def process_generation_pipeline(
                 import traceback
                 logger.error(f"Pipeline error for run {run_id}: {str(e)}")
                 logger.error(traceback.format_exc())
-                # Ensure we are still in a valid state to update the run
                 try:
                     run = db.query(GenerationRun).filter(GenerationRun.id == run_id).first()
                     if run:

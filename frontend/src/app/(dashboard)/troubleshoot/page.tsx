@@ -101,7 +101,7 @@ export default function TroubleshootPage() {
           }, 1500);
           throw new Error('Authentication token is missing. Access denied.');
         }
-        const res = await fetch('/api/v1/profiles/master', {
+        const res = await fetch('/api/v1/profiles', {
           headers: {
             'Authorization': `Bearer ${token}`
           }
@@ -274,7 +274,7 @@ export default function TroubleshootPage() {
                   <div>
                     <h4 style={{ fontSize: '0.95rem', color: 'var(--text-main)', marginBottom: '0.15rem' }}>Brass Tacks Engine Status</h4>
                     <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: 0 }}>
-                      Verifying that the FastAPI backend server is reachable at <code style={{ color: 'var(--accent)' }}>http://localhost:8000</code>.
+                      Verifying that the FastAPI backend server is reachable at <code style={{ color: 'var(--accent)' }}>http://localhost:8001</code>.
                     </p>
                   </div>
                 </div>
